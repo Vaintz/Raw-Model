@@ -36,7 +36,7 @@ function cacheBones(){
    const p0=new THREE.Vector3(),p1=new THREE.Vector3();
    upper.getWorldPosition(p0);lower.getWorldPosition(p1);
    const current=p1.sub(p0).normalize();
-   const target=new THREE.Vector3(handedness*0.12,-0.99,0).normalize();
+   const target=new THREE.Vector3(handedness*0.22,-0.96,0.18).normalize();
    const delta=new THREE.Quaternion().setFromUnitVectors(current,target);
    const worldQ=upper.getWorldQuaternion(new THREE.Quaternion());
    worldQ.premultiply(delta);
