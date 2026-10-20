@@ -99,18 +99,21 @@ function applyCameraTracking(t){
  const now=performance.now();
  if(now-lastPoseDetect>33){
   lastPoseDetect=now;
-  try{const result=poseLandmarker.detectForVideo(video,now);trackedPose=result.faceBlendshapes?.[0]?.categories||null}catch(err){console.warn('Pose tracking frame failed',err)}
+  try{const result=poseLandmarker.detectForVideo(video,now);trackedPose=result.faceBlendshapes?.[0]?.categories||null}catch(err){console.warn('Face tracking frame failed',err)}
  }
  if(!trackedPose)return;
  const scores=Object.fromEntries(trackedPose.map(x=>[x.categoryName,x.score]));
  const expr=vrm?.expressionManager;if(!expr)return;
  const names=(expr.expressions||[]).map(x=>x.expressionName||x.name).filter(Boolean);
+ const get=(...keys)=>Math.max(0,...keys.map(k=>scores[k]||0));
  const apply=(name,value)=>{const key=names.find(n=>n.toLowerCase()===name);if(key)expr.setValue(key,THREE.MathUtils.clamp(value,0,1))};
- apply('joy',Math.max(scores.mouthSmileLeft||0,scores.mouthSmileRight||0));
- apply('angry',Math.max(scores.browDownLeft||0,scores.browDownRight||0));
- apply('sorrow',Math.max(scores.mouthFrownLeft||0,scores.mouthFrownRight||0));
- apply('surprised',Math.max(scores.jawOpen||0,scores.eyeWideLeft||0,scores.eyeWideRight||0));
- apply('blink_l',scores.eyeBlinkLeft||0);apply('blink_r',scores.eyeBlinkRight||0);
+ apply('joy',get('mouthSmileLeft','mouthSmileRight'));
+ apply('angry',get('browDownLeft','browDownRight'));
+ apply('sorrow',get('mouthFrownLeft','mouthFrownRight'));
+ apply('surprised',Math.max(get('jawOpen')*.9,get('eyeWideLeft','eyeWideRight')*.65));
+ apply('blink_l',get('eyeBlinkLeft'));apply('blink_r',get('eyeBlinkRight'));apply('blink',get('eyeBlinkLeft','eyeBlinkRight'));
+ const jaw=get('jawOpen'),round=get('mouthPucker','mouthFunnel'),smile=get('mouthSmileLeft','mouthSmileRight');
+ apply('aa',jaw*(1-round));apply('oh',jaw*round);apply('ou',round);apply('ih',smile*.45*(1-jaw));apply('ee',smile*.7*(1-jaw));
  $('motionLabel').textContent='Face Tracking';
 }
 function buildExpressions(){const root=$('expressions');root.innerHTML='';const ex=vrm.expressionManager?.expressions||[];const names=[...new Set(ex.map(e=>e.expressionName||e.name).filter(Boolean))];if(!names.length){root.textContent='No expressions found';return}for(const n of names){const b=document.createElement('button');b.textContent=({joy:'Joy',fun:'Fun',sorrow:'Sorrow',angry:'Angry',surprised:'Surprised',blink:'Blink',blink_l:'Blink L',blink_r:'Blink R',aa:'A',ih:'I',ou:'U',ee:'E',oh:'O',neutral:'Neutral'})[n.toLowerCase()]||n;b.title=n;b.onclick=()=>{for(const k of names)vrm.expressionManager.setValue(k,k===n?1:0);root.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b))};root.append(b)}}
