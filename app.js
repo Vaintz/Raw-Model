@@ -123,6 +123,7 @@ function applyCameraTracking(t){
   lastPoseDetect=now;
   try{const result=poseLandmarker.detectForVideo(video,now);trackedPose=result.faceBlendshapes?.[0]?.categories||null;trackedFaceLandmarks=result.faceLandmarks?.[0]||null;trackedFaceMatrix=result.facialTransformationMatrixes?.[0]?.data||null}catch(err){console.warn('Face tracking frame failed',err)}
  }
+ drawFaceLandmarks();
  if(!trackedPose)return;
  // Prefer MediaPipe's facial transformation matrix for head pose; fall back to landmarks.
  const head=baseBones.find(x=>x.n==='head')?.b,neck=baseBones.find(x=>x.n==='neck')?.b;
