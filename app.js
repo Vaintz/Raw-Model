@@ -5,7 +5,7 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 const $=id=>document.getElementById(id), host=$('viewer');
 let scene,camera,renderer,controls,clock,vrm,grid;
-let motion='idle',motionStart=0,idle=true,speed=1,baseBones=[];
+let motion='idle',motionStart=0,idle=true,baseBones=[];
 function init(){
  scene=new THREE.Scene();scene.background=new THREE.Color(0x111621);
  camera=new THREE.PerspectiveCamera(32,1,.05,200);camera.position.set(0,1.5,4);
@@ -20,7 +20,7 @@ function init(){
 }
 function resize(){if(!renderer)return;const w=host.clientWidth||800,h=host.clientHeight||600;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false);if(vrm)fitCamera()}
 function fitCamera(){vrm.scene.updateMatrixWorld(true);const b=new THREE.Box3().setFromObject(vrm.scene);if(b.isEmpty())return;const s=b.getSize(new THREE.Vector3()),c=b.getCenter(new THREE.Vector3()),height=Math.max(s.y,1),aspect=Math.max(host.clientWidth/Math.max(host.clientHeight,1),.5),vf=THREE.MathUtils.degToRad(camera.fov),hf=2*Math.atan(Math.tan(vf/2)*aspect),dist=Math.max(height*.62/Math.tan(vf/2),Math.max(s.x,.5)*.7/Math.tan(hf/2),2);controls.target.set(c.x,b.min.y+height*.53,c.z);camera.position.set(c.x,controls.target.y+height*.05,c.z+dist);camera.near=dist/100;camera.far=dist*30;camera.updateProjectionMatrix();controls.minDistance=height*.4;controls.maxDistance=dist*3;controls.update()}
-async async function loadVRM(fileOrUrl,name='White_Haired_Girl.vrm'){
+async function loadVRM(fileOrUrl,name='White_Haired_Girl.vrm'){
  $('loading').classList.remove('hidden');$('loading').textContent='Loading avatar…';
  try{const loader=new GLTFLoader();loader.register(p=>new VRMLoaderPlugin(p));const gltf=await loader.loadAsync(fileOrUrl);if(!gltf.userData.vrm)throw Error('File is not a readable VRM avatar');if(vrm){scene.remove(vrm.scene);VRMUtils.deepDispose(vrm.scene)}vrm=gltf.userData.vrm;VRMUtils.rotateVRM0(vrm);scene.add(vrm.scene);vrm.scene.traverse(o=>{if(o.isMesh)o.frustumCulled=false});cacheBones();fitCamera();$('modelName').textContent=name;$('status').textContent='Avatar ready';buildExpressions();$('loading').classList.add('hidden');setMotion('idle')}catch(e){console.error(e);$('loading').textContent='Load error: '+e.message;$('status').textContent='Load failed'}}
 function cacheBones(){baseBones=[];for(const n of ['hips','spine','chest','neck','head','leftUpperArm','leftLowerArm','rightUpperArm','rightLowerArm']){const b=vrm.humanoid?.getNormalizedBoneNode(n);if(b)baseBones.push({n,b,rot:b.rotation.clone(),pos:b.position.clone()})}const left=baseBones.find(x=>x.n==='leftUpperArm')?.b,right=baseBones.find(x=>x.n==='rightUpperArm')?.b;if(left)left.rotation.z+=0.65;if(right)right.rotation.z-=0.65;for(const x of baseBones){x.rot.copy(x.b.rotation);x.pos.copy(x.b.position)}}
