@@ -134,6 +134,8 @@ function applyCameraTracking(t){
  apply('sorrow',get('mouthFrownLeft','mouthFrownRight'));
  apply('surprised',Math.max(get('jawOpen')*.9,get('eyeWideLeft','eyeWideRight')*.65));
  apply('blink_l',get('eyeBlinkLeft'));apply('blink_r',get('eyeBlinkRight'));apply('blink',get('eyeBlinkLeft','eyeBlinkRight'));
+ apply('lookUp',get('eyeLookUpLeft','eyeLookUpRight'));apply('lookDown',get('eyeLookDownLeft','eyeLookDownRight'));
+ apply('lookLeft',get('eyeLookOutLeft','eyeLookInRight'));apply('lookRight',get('eyeLookInLeft','eyeLookOutRight'));
  const jaw=get('jawOpen'),round=get('mouthPucker','mouthFunnel'),smile=get('mouthSmileLeft','mouthSmileRight');
  apply('aa',jaw*(1-round));apply('oh',jaw*round);apply('ou',round);apply('ih',smile*.45*(1-jaw));apply('ee',smile*.7*(1-jaw));
  $('motionLabel').textContent='Face Tracking';
