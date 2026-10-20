@@ -5,7 +5,8 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 const $=id=>document.getElementById(id), host=$('viewer');
 let scene,camera,renderer,controls,clock,vrm,grid;
-let motion='idle',motionStart=0,idle=true,baseBones=[];\nlet cameraStream=null,poseLandmarker=null,trackedPose=null,lastPoseDetect=0,cameraActive=false;
+let motion='idle',motionStart=0,idle=true,baseBones=[];
+let cameraStream=null,poseLandmarker=null,trackedPose=null,lastPoseDetect=0,cameraActive=false;
 function init(){
  scene=new THREE.Scene();scene.background=new THREE.Color(0x111621);
  camera=new THREE.PerspectiveCamera(32,1,.05,200);camera.position.set(0,1.5,4);
