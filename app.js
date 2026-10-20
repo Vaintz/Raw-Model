@@ -135,8 +135,12 @@ function applyCameraTracking(t){
  apply('angry',get('browDownLeft','browDownRight'));
  apply('sorrow',get('mouthFrownLeft','mouthFrownRight'));
  apply('surprised',Math.max(get('jawOpen')*.9,get('eyeWideLeft','eyeWideRight')*.65));
- apply('blink_l',get('eyeBlinkLeft'));apply('blink_r',get('eyeBlinkRight'));apply('blink',get('eyeBlinkLeft','eyeBlinkRight'));
- apply('lookUp',get('eyeLookDownLeft','eyeLookDownRight'));apply('lookDown',get('eyeLookUpLeft','eyeLookUpRight'));
+ const leftBlink=THREE.MathUtils.clamp((get('eyeBlinkLeft')-.18)/.55,0,1);
+ const rightBlink=THREE.MathUtils.clamp((get('eyeBlinkRight')-.18)/.55,0,1);
+ const hasLeft=names.some(n=>n.toLowerCase()==='blink_l'),hasRight=names.some(n=>n.toLowerCase()==='blink_r');
+ if(hasLeft)apply('blink_l',leftBlink);if(hasRight)apply('blink_r',rightBlink);
+ if(!hasLeft&&!hasRight)apply('blink',Math.max(leftBlink,rightBlink));
+ apply('lookUp',get('eyeLookUpLeft','eyeLookUpRight'));apply('lookDown',get('eyeLookDownLeft','eyeLookDownRight'));
  apply('lookLeft',get('eyeLookOutLeft','eyeLookInRight'));apply('lookRight',get('eyeLookInLeft','eyeLookOutRight'));
  const jaw=get('jawOpen'),round=get('mouthPucker','mouthFunnel'),smile=get('mouthSmileLeft','mouthSmileRight');
  apply('aa',jaw*(1-round));apply('oh',jaw*round);apply('ou',round);apply('ih',smile*.45*(1-jaw));apply('ee',smile*.7*(1-jaw));
