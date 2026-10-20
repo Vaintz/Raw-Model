@@ -95,9 +95,10 @@ function applyCameraTracking(t){
  if(!cameraActive||!poseLandmarker)return;
  const video=$('cameraVideo');
  if(video.readyState<2)return;
- if(t-lastPoseDetect>33){
-  lastPoseDetect=t;
-  try{const result=poseLandmarker.detectForVideo(video,t);if(result.landmarks?.[0])trackedPose=result.landmarks[0]}catch(err){console.warn('Pose tracking frame failed',err)}
+ const now=performance.now();
+ if(now-lastPoseDetect>33){
+  lastPoseDetect=now;
+  try{const result=poseLandmarker.detectForVideo(video,now);if(result.landmarks?.[0])trackedPose=result.landmarks[0]}catch(err){console.warn('Pose tracking frame failed',err)}
  }
  if(!trackedPose)return;
  const p=trackedPose,visible=i=>p[i]&&((p[i].visibility??1)>.35);
