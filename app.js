@@ -5,7 +5,7 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 const $=id=>document.getElementById(id), host=$('viewer');
 let scene,camera,renderer,controls,clock,vrm,grid;
-let motion='idle',motionStart=0,idle=true,baseBones=[];
+let motion='idle',motionStart=0,idle=true,baseBones=[];\nlet cameraStream=null,poseLandmarker=null,trackedPose=null,lastPoseDetect=0,cameraActive=false;
 function init(){
  scene=new THREE.Scene();scene.background=new THREE.Color(0x111621);
  camera=new THREE.PerspectiveCamera(32,1,.05,200);camera.position.set(0,1.5,4);
@@ -53,9 +53,61 @@ function cacheBones(){
  }
  for(const x of baseBones){x.rot.copy(x.b.rotation);x.pos.copy(x.b.position);x.quat.copy(x.b.quaternion)}
 }
+async function startCameraTracking(){
+ const status=$('cameraStatus'),video=$('cameraVideo'),start=$('cameraStart'),stop=$('cameraStop');
+ try{
+  status.textContent='Memuat model pelacakan pose…';start.disabled=true;
+  const vision=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm');
+  const files=await vision.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm');
+  poseLandmarker=await vision.PoseLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',delegate:'GPU'},runningMode:'VIDEO',numPoses:1});
+  cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
+  video.srcObject=cameraStream;await video.play();cameraActive=true;trackedPose=null;setMotion('camera');
+  start.disabled=true;stop.disabled=false;status.textContent='Kamera aktif. Berdiri agak jauh dan pastikan bahu serta siku terlihat.';
+ }catch(err){
+  console.error(err);status.textContent='Kamera gagal: '+(err?.message||err);start.disabled=false;
+  if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}
+ }
+}
+function stopCameraTracking(){
+ cameraActive=false;trackedPose=null;
+ if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}
+ const v=$('cameraVideo');if(v)v.srcObject=null;
+ $('cameraStart').disabled=false;$('cameraStop').disabled=true;
+ $('cameraStatus').textContent='Kamera dimatikan.';
+ if(poseLandmarker){poseLandmarker.close();poseLandmarker=null}
+ setMotion('idle');
+}
+function trackArm(upperName,lowerName,shoulder,elbow,wrist){
+ const upper=baseBones.find(x=>x.n===upperName)?.b,lower=baseBones.find(x=>x.n===lowerName)?.b,hand=baseBones.find(x=>x.n===upperName.replace('UpperArm','Hand'))?.b;
+ if(!upper||!lower||!shoulder||!elbow||!wrist)return;
+ const direction=(a,b)=>new THREE.Vector3((b.x-a.x)*2.2,(a.y-b.y)*2.2,(a.z-b.z)*1.5).normalize();
+ const aim=(a,b,dir)=>{
+  vrm.scene.updateMatrixWorld(true);
+  const p=new THREE.Vector3(),q=new THREE.Vector3();a.getWorldPosition(p);b.getWorldPosition(q);
+  const current=q.sub(p).normalize(),delta=new THREE.Quaternion().setFromUnitVectors(current,dir);
+  const world=a.getWorldQuaternion(new THREE.Quaternion());world.premultiply(delta);
+  const parent=a.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+  a.quaternion.slerp(parent.multiply(world),0.32);vrm.scene.updateMatrixWorld(true);
+ };
+ aim(upper,lower,direction(shoulder,elbow));aim(lower,hand||lower,direction(elbow,wrist));
+}
+function applyCameraTracking(t){
+ if(!cameraActive||!poseLandmarker)return;
+ const video=$('cameraVideo');
+ if(video.readyState<2)return;
+ if(t-lastPoseDetect>33){
+  lastPoseDetect=t;
+  try{const result=poseLandmarker.detectForVideo(video,t);if(result.landmarks?.[0])trackedPose=result.landmarks[0]}catch(err){console.warn('Pose tracking frame failed',err)}
+ }
+ if(!trackedPose)return;
+ const p=trackedPose,visible=i=>p[i]&&((p[i].visibility??1)>.35);
+ if(visible(11)&&visible(13)&&visible(15))trackArm('leftUpperArm','leftLowerArm',p[11],p[13],p[15]);
+ if(visible(12)&&visible(14)&&visible(16))trackArm('rightUpperArm','rightLowerArm',p[12],p[14],p[16]);
+ $('motionLabel').textContent='Camera';
+}
 function buildExpressions(){const root=$('expressions');root.innerHTML='';const ex=vrm.expressionManager?.expressions||[];const names=[...new Set(ex.map(e=>e.expressionName||e.name).filter(Boolean))];if(!names.length){root.textContent='No expressions found';return}for(const n of names){const b=document.createElement('button');b.textContent=({joy:'Joy',fun:'Fun',sorrow:'Sorrow',angry:'Angry',surprised:'Surprised',blink:'Blink',blink_l:'Blink L',blink_r:'Blink R',aa:'A',ih:'I',ou:'U',ee:'E',oh:'O',neutral:'Neutral'})[n.toLowerCase()]||n;b.title=n;b.onclick=()=>{for(const k of names)vrm.expressionManager.setValue(k,k===n?1:0);root.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b))};root.append(b)}}
 function setMotion(m){motion=m;motionStart=clock.elapsedTime;document.querySelectorAll('[data-motion]').forEach(b=>b.classList.toggle('selected',b.dataset.motion===m));$('motionLabel').textContent=m[0].toUpperCase()+m.slice(1)}
-function applyMotion(t){if(!vrm)return;for(const x of baseBones){x.b.rotation.copy(x.rot);x.b.position.copy(x.pos)}const get=n=>baseBones.find(x=>x.n===n)?.b,head=get('head'),neck=get('neck'),chest=get('chest')||get('spine'),spine=get('spine'),hips=get('hips'),arm=get('rightUpperArm'),forearm=get('rightLowerArm'),u=t-motionStart;if(motion==='idle'&&idle){const breath=Math.sin(t*1.25),sway=Math.sin(t*.55);if(head){head.rotation.x+=Math.sin(t*.8)*.012;head.rotation.z+=sway*.012}if(neck)neck.rotation.z-=sway*.006;if(chest)chest.rotation.x+=breath*.008;if(spine)spine.rotation.x+=breath*.004;if(hips)hips.position.y+=Math.sin(t*1.25)*.003;for(const [name,sign] of [['leftShoulder',1],['rightShoulder',-1]]){const b=get(name);if(b)b.rotation.z+=sway*.006*sign}}else if(motion==='nod'){if(head)head.rotation.x+=Math.sin(u*9)*.22*Math.max(0,1-u/1.5);if(u>1.5)setMotion('idle')}else if(motion==='bow'){const e=u<.6?u/.6:u<1.4?1:Math.max(0,(2-u)/.6);if(chest)chest.rotation.x-=.48*e;if(head)head.rotation.x-=.2*e;if(u>2)setMotion('idle')}}
-function bind(){$('vrmFile').onchange=e=>{const f=e.target.files[0];if(f){const u=URL.createObjectURL(f);loadVRM(u,f.name).finally(()=>URL.revokeObjectURL(u))}e.target.value=''};$('reset').onclick=fitCamera;$('clearExpression').onclick=()=>{for(const e of vrm?.expressionManager?.expressions||[])vrm.expressionManager.setValue(e.expressionName||e.name,0);$('expressions').querySelectorAll('button').forEach(b=>b.classList.remove('selected'))};$('idle').onchange=e=>idle=e.target.checked;document.querySelectorAll('[data-motion]').forEach(b=>b.onclick=()=>setMotion(b.dataset.motion))}
+function applyMotion(t){if(!vrm)return;for(const x of baseBones){x.b.rotation.copy(x.rot);x.b.position.copy(x.pos)}if(cameraActive){applyCameraTracking(t);return}const get=n=>baseBones.find(x=>x.n===n)?.b,head=get('head'),neck=get('neck'),chest=get('chest')||get('spine'),spine=get('spine'),hips=get('hips'),arm=get('rightUpperArm'),forearm=get('rightLowerArm'),u=t-motionStart;if(motion==='idle'&&idle){const breath=Math.sin(t*1.25),sway=Math.sin(t*.55);if(head){head.rotation.x+=Math.sin(t*.8)*.012;head.rotation.z+=sway*.012}if(neck)neck.rotation.z-=sway*.006;if(chest)chest.rotation.x+=breath*.008;if(spine)spine.rotation.x+=breath*.004;if(hips)hips.position.y+=Math.sin(t*1.25)*.003;for(const [name,sign] of [['leftShoulder',1],['rightShoulder',-1]]){const b=get(name);if(b)b.rotation.z+=sway*.006*sign}}else if(motion==='nod'){if(head)head.rotation.x+=Math.sin(u*9)*.22*Math.max(0,1-u/1.5);if(u>1.5)setMotion('idle')}else if(motion==='bow'){const e=u<.6?u/.6:u<1.4?1:Math.max(0,(2-u)/.6);if(chest)chest.rotation.x-=.48*e;if(head)head.rotation.x-=.2*e;if(u>2)setMotion('idle')}}
+function bind(){$('vrmFile').onchange=e=>{const f=e.target.files[0];if(f){const u=URL.createObjectURL(f);loadVRM(u,f.name).finally(()=>URL.revokeObjectURL(u))}e.target.value=''};$('reset').onclick=fitCamera;$('clearExpression').onclick=()=>{for(const e of vrm?.expressionManager?.expressions||[])vrm.expressionManager.setValue(e.expressionName||e.name,0);$('expressions').querySelectorAll('button').forEach(b=>b.classList.remove('selected'))};$('idle').onchange=e=>idle=e.target.checked;$('cameraStart').onclick=startCameraTracking;$('cameraStop').onclick=stopCameraTracking;document.querySelectorAll('[data-motion]').forEach(b=>b.onclick=()=>setMotion(b.dataset.motion))}
 function render(){const d=Math.min(clock.getDelta(),.05),t=clock.elapsedTime;applyMotion(t);vrm?.update(d);controls.update();renderer.render(scene,camera)}
 init();loadVRM('./assets/White_Haired_Girl.vrm');
