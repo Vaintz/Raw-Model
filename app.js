@@ -6,7 +6,7 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 const $=id=>document.getElementById(id), host=$('viewer');
 let scene,camera,renderer,controls,clock,vrm,grid;
 let motion='idle',motionStart=0,idle=true,baseBones=[];
-let cameraStream=null,poseLandmarker=null,trackedPose=null,trackedFaceLandmarks=null,lastPoseDetect=0,cameraActive=false,headTracking={x:0,y:0,z:0};
+let cameraStream=null,poseLandmarker=null,trackedPose=null,trackedFaceLandmarks=null,trackedFaceMatrix=null,lastPoseDetect=0,cameraActive=false,headTracking={x:0,y:0,z:0},headBase=null,eyeBase={left:null,right:null};
 function init(){
  scene=new THREE.Scene();scene.background=new THREE.Color(0x111621);
  camera=new THREE.PerspectiveCamera(32,1,.05,200);camera.position.set(0,1.5,4);
@@ -60,9 +60,9 @@ async function startCameraTracking(){
   status.textContent='Memuat model ekspresi wajah…';start.disabled=true;
   const vision=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/vision_bundle.mjs');
   const files=await vision.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm');
-  poseLandmarker=await vision.FaceLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:'CPU'},runningMode:'VIDEO',numFaces:1,outputFaceBlendshapes:true});
+  poseLandmarker=await vision.FaceLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:'CPU'},runningMode:'VIDEO',numFaces:1,outputFaceBlendshapes:true,outputFacialTransformationMatrixes:true});
   cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
-  video.srcObject=cameraStream;await video.play();cameraActive=true;trackedPose=null;trackedFaceLandmarks=null;headTracking={x:0,y:0,z:0};setMotion('camera');
+  video.srcObject=cameraStream;await video.play();cameraActive=true;trackedPose=null;trackedFaceLandmarks=null;trackedFaceMatrix=null;headTracking={x:0,y:0,z:0};headBase=null;eyeBase={left:null,right:null};setMotion('camera');
   start.disabled=true;stop.disabled=false;status.textContent='Kamera aktif. Hadapkan wajah ke kamera dengan pencahayaan cukup.';
  }catch(err){
   console.error('Camera tracking initialization failed:',err);const detail=err instanceof Error ? `${err.name}: ${err.message}` : (err?.message || err?.type || err?.target?.src || JSON.stringify(err) || String(err));status.textContent='Kamera gagal: '+detail;start.disabled=false;
@@ -70,7 +70,7 @@ async function startCameraTracking(){
  }
 }
 function stopCameraTracking(){
- cameraActive=false;trackedPose=null;trackedFaceLandmarks=null;headTracking={x:0,y:0,z:0};
+ cameraActive=false;trackedPose=null;trackedFaceLandmarks=null;headTracking={x:0,y:0,z:0};headBase=null;eyeBase={left:null,right:null};
  if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}
  const v=$('cameraVideo');if(v)v.srcObject=null;
  $('cameraStart').disabled=false;$('cameraStop').disabled=true;
@@ -99,25 +99,29 @@ function applyCameraTracking(t){
  const now=performance.now();
  if(now-lastPoseDetect>33){
   lastPoseDetect=now;
-  try{const result=poseLandmarker.detectForVideo(video,now);trackedPose=result.faceBlendshapes?.[0]?.categories||null;trackedFaceLandmarks=result.faceLandmarks?.[0]||null}catch(err){console.warn('Face tracking frame failed',err)}
+  try{const result=poseLandmarker.detectForVideo(video,now);trackedPose=result.faceBlendshapes?.[0]?.categories||null;trackedFaceLandmarks=result.faceLandmarks?.[0]||null;trackedFaceMatrix=result.facialTransformationMatrixes?.[0]?.data||null}catch(err){console.warn('Face tracking frame failed',err)}
  }
  if(!trackedPose)return;
- // Estimate head yaw, pitch and roll from stable face landmarks.
+ // Prefer MediaPipe's facial transformation matrix for head pose; fall back to landmarks.
  const head=baseBones.find(x=>x.n==='head')?.b,neck=baseBones.find(x=>x.n==='neck')?.b;
- if(trackedFaceLandmarks&&head){
-  const p=trackedFaceLandmarks, nose=p[1], left=p[234], right=p[454], forehead=p[10], chin=p[152];
-  if(nose&&left&&right&&forehead&&chin){
-   const cx=(left.x+right.x)/2, cy=(left.y+right.y)/2, width=Math.max(.001,right.x-left.x), height=Math.max(.001,chin.y-forehead.y);
-   const yaw=THREE.MathUtils.clamp((nose.x-cx)/width*1.5,-.65,.65);
-   const pitch=THREE.MathUtils.clamp(((nose.y-cy)/height-.12)*2.0,-.45,.45);
-   const roll=THREE.MathUtils.clamp(Math.atan2(right.y-left.y,right.x-left.x),-.5,.5);
-   headTracking.x=THREE.MathUtils.lerp(headTracking.x,pitch,.28);
-   headTracking.y=THREE.MathUtils.lerp(headTracking.y,-yaw,.28);
-   headTracking.z=THREE.MathUtils.lerp(headTracking.z,-roll,.28);
-   head.rotation.x+=headTracking.x;
-   head.rotation.y+=headTracking.y;
-   head.rotation.z+=headTracking.z;
-   if(neck){neck.rotation.x+=headTracking.x*.22;neck.rotation.y+=headTracking.y*.18;}
+ if(head){
+  let target=null;
+  if(trackedFaceMatrix?.length>=16){
+   const m=new THREE.Matrix4().fromArray(trackedFaceMatrix);
+   const rot=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().extractRotation(m));
+   const euler=new THREE.Euler().setFromQuaternion(rot,'YXZ');
+   target={x:THREE.MathUtils.clamp(euler.x,-.55,.55),y:THREE.MathUtils.clamp(euler.y,-.75,.75),z:THREE.MathUtils.clamp(-euler.z,-.5,.5)};
+  } else if(trackedFaceLandmarks){
+   const p=trackedFaceLandmarks,nose=p[1],left=p[234],right=p[454],forehead=p[10],chin=p[152];
+   if(nose&&left&&right&&forehead&&chin){
+    const cx=(left.x+right.x)/2,cy=(left.y+right.y)/2,width=Math.max(.001,right.x-left.x),height=Math.max(.001,chin.y-forehead.y);
+    target={x:THREE.MathUtils.clamp(((nose.y-cy)/height-.12)*2,-.45,.45),y:THREE.MathUtils.clamp(-(nose.x-cx)/width*1.5,-.65,.65),z:THREE.MathUtils.clamp(-Math.atan2(right.y-left.y,right.x-left.x),-.5,.5)};
+   }
+  }
+  if(target){
+   headTracking.x=THREE.MathUtils.lerp(headTracking.x,target.x,.22);headTracking.y=THREE.MathUtils.lerp(headTracking.y,target.y,.22);headTracking.z=THREE.MathUtils.lerp(headTracking.z,target.z,.22);
+   head.rotation.x+=headTracking.x;head.rotation.y+=headTracking.y;head.rotation.z+=headTracking.z;
+   if(neck){neck.rotation.x+=headTracking.x*.22;neck.rotation.y+=headTracking.y*.18;neck.rotation.z+=headTracking.z*.15;}
   }
  }
  const scores=Object.fromEntries(trackedPose.map(x=>[x.categoryName,x.score]));
