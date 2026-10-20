@@ -65,7 +65,7 @@ async function startCameraTracking(){
   video.srcObject=cameraStream;await video.play();cameraActive=true;trackedPose=null;setMotion('camera');
   start.disabled=true;stop.disabled=false;status.textContent='Kamera aktif. Berdiri agak jauh dan pastikan bahu serta siku terlihat.';
  }catch(err){
-  console.error(err);status.textContent='Kamera gagal: '+(err?.message||err);start.disabled=false;
+  console.error('Camera tracking initialization failed:',err);const detail=err instanceof Error ? `${err.name}: ${err.message}` : (err?.message || err?.type || err?.target?.src || JSON.stringify(err) || String(err));status.textContent='Kamera gagal: '+detail;start.disabled=false;
   if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}
  }
 }
