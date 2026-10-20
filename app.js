@@ -57,13 +57,13 @@ function cacheBones(){
 async function startCameraTracking(){
  const status=$('cameraStatus'),video=$('cameraVideo'),start=$('cameraStart'),stop=$('cameraStop');
  try{
-  status.textContent='Memuat model pelacakan pose…';start.disabled=true;
+  status.textContent='Memuat model ekspresi wajah…';start.disabled=true;
   const vision=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/vision_bundle.mjs');
   const files=await vision.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm');
-  poseLandmarker=await vision.PoseLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',delegate:'GPU'},runningMode:'VIDEO',numPoses:1});
+  poseLandmarker=await vision.FaceLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:'CPU'},runningMode:'VIDEO',numFaces:1,outputFaceBlendshapes:true});
   cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
   video.srcObject=cameraStream;await video.play();cameraActive=true;trackedPose=null;setMotion('camera');
-  start.disabled=true;stop.disabled=false;status.textContent='Kamera aktif. Berdiri agak jauh dan pastikan bahu serta siku terlihat.';
+  start.disabled=true;stop.disabled=false;status.textContent='Kamera aktif. Hadapkan wajah ke kamera dengan pencahayaan cukup.';
  }catch(err){
   console.error('Camera tracking initialization failed:',err);const detail=err instanceof Error ? `${err.name}: ${err.message}` : (err?.message || err?.type || err?.target?.src || JSON.stringify(err) || String(err));status.textContent='Kamera gagal: '+detail;start.disabled=false;
   if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}
@@ -99,13 +99,19 @@ function applyCameraTracking(t){
  const now=performance.now();
  if(now-lastPoseDetect>33){
   lastPoseDetect=now;
-  try{const result=poseLandmarker.detectForVideo(video,now);if(result.landmarks?.[0])trackedPose=result.landmarks[0]}catch(err){console.warn('Pose tracking frame failed',err)}
+  try{const result=poseLandmarker.detectForVideo(video,now);trackedPose=result.faceBlendshapes?.[0]?.categories||null}catch(err){console.warn('Pose tracking frame failed',err)}
  }
  if(!trackedPose)return;
- const p=trackedPose,visible=i=>p[i]&&((p[i].visibility??1)>.35);
- if(visible(11)&&visible(13)&&visible(15))trackArm('leftUpperArm','leftLowerArm',p[11],p[13],p[15]);
- if(visible(12)&&visible(14)&&visible(16))trackArm('rightUpperArm','rightLowerArm',p[12],p[14],p[16]);
- $('motionLabel').textContent='Camera';
+ const scores=Object.fromEntries(trackedPose.map(x=>[x.categoryName,x.score]));
+ const expr=vrm?.expressionManager;if(!expr)return;
+ const names=(expr.expressions||[]).map(x=>x.expressionName||x.name).filter(Boolean);
+ const apply=(name,value)=>{const key=names.find(n=>n.toLowerCase()===name);if(key)expr.setValue(key,THREE.MathUtils.clamp(value,0,1))};
+ apply('joy',Math.max(scores.mouthSmileLeft||0,scores.mouthSmileRight||0));
+ apply('angry',Math.max(scores.browDownLeft||0,scores.browDownRight||0));
+ apply('sorrow',Math.max(scores.mouthFrownLeft||0,scores.mouthFrownRight||0));
+ apply('surprised',Math.max(scores.jawOpen||0,scores.eyeWideLeft||0,scores.eyeWideRight||0));
+ apply('blink_l',scores.eyeBlinkLeft||0);apply('blink_r',scores.eyeBlinkRight||0);
+ $('motionLabel').textContent='Face Tracking';
 }
 function buildExpressions(){const root=$('expressions');root.innerHTML='';const ex=vrm.expressionManager?.expressions||[];const names=[...new Set(ex.map(e=>e.expressionName||e.name).filter(Boolean))];if(!names.length){root.textContent='No expressions found';return}for(const n of names){const b=document.createElement('button');b.textContent=({joy:'Joy',fun:'Fun',sorrow:'Sorrow',angry:'Angry',surprised:'Surprised',blink:'Blink',blink_l:'Blink L',blink_r:'Blink R',aa:'A',ih:'I',ou:'U',ee:'E',oh:'O',neutral:'Neutral'})[n.toLowerCase()]||n;b.title=n;b.onclick=()=>{for(const k of names)vrm.expressionManager.setValue(k,k===n?1:0);root.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b))};root.append(b)}}
 function setMotion(m){motion=m;motionStart=clock.elapsedTime;document.querySelectorAll('[data-motion]').forEach(b=>b.classList.toggle('selected',b.dataset.motion===m));$('motionLabel').textContent=m[0].toUpperCase()+m.slice(1)}
