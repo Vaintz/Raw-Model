@@ -26,7 +26,7 @@ async function loadVRM(fileOrUrl,name='White_Haired_Girl.vrm'){
  try{const loader=new GLTFLoader();loader.register(p=>new VRMLoaderPlugin(p));const gltf=await loader.loadAsync(fileOrUrl);if(!gltf.userData.vrm)throw Error('File is not a readable VRM avatar');if(vrm){scene.remove(vrm.scene);VRMUtils.deepDispose(vrm.scene)}vrm=gltf.userData.vrm;VRMUtils.rotateVRM0(vrm);scene.add(vrm.scene);vrm.scene.traverse(o=>{if(o.isMesh)o.frustumCulled=false});cacheBones();fitCamera();$('modelName').textContent=name;$('status').textContent='Avatar ready';buildExpressions();$('loading').classList.add('hidden');setMotion('idle')}catch(e){console.error(e);$('loading').textContent='Load error: '+e.message;$('status').textContent='Load failed'}}
 function cacheBones(){
  baseBones=[];
- const names=['hips','spine','chest','neck','head','leftShoulder','rightShoulder','leftUpperArm','leftLowerArm','leftHand','rightUpperArm','rightLowerArm','rightHand'];
+ const names=['hips','spine','chest','neck','head','leftEye','rightEye','leftShoulder','rightShoulder','leftUpperArm','leftLowerArm','leftHand','rightUpperArm','rightLowerArm','rightHand'];
  for(const n of names){const b=vrm.humanoid?.getNormalizedBoneNode(n);if(b)baseBones.push({n,b,rot:b.rotation.clone(),pos:b.position.clone(),quat:b.quaternion.clone()})}
  // Aim upper arms toward relaxed world-space directions using the actual joint positions,
  // instead of guessing Euler Z angles for this rig.
@@ -125,6 +125,24 @@ function applyCameraTracking(t){
   }
  }
  const scores=Object.fromEntries(trackedPose.map(x=>[x.categoryName,x.score]));
+ // Drive the avatar's actual eye bones from MediaPipe gaze blendshapes.
+ // This VRM has eye bones but no lookLeft/lookRight/lookUp/lookDown preset expressions.
+ const score=(...keys)=>Math.max(0,...keys.map(k=>scores[k]||0));
+ const gaze=(inKey,outKey,upKey,downKey)=>{
+  const horizontal=THREE.MathUtils.clamp(score(outKey)-score(inKey),-1,1);
+  const vertical=THREE.MathUtils.clamp(score(downKey)-score(upKey),-1,1);
+  return {x:vertical*.16,y:horizontal*.22};
+ };
+ for(const [boneName,inKey,outKey,upKey,downKey] of [
+  ['leftEye','eyeLookInLeft','eyeLookOutLeft','eyeLookUpLeft','eyeLookDownLeft'],
+  ['rightEye','eyeLookInRight','eyeLookOutRight','eyeLookUpRight','eyeLookDownRight']
+ ]){
+  const eye=baseBones.find(x=>x.n===boneName)?.b;
+  if(!eye)continue;
+  const g=gaze(inKey,outKey,upKey,downKey);
+  eye.rotation.x+=g.x;
+  eye.rotation.y+=g.y;
+ }
  const expr=vrm?.expressionManager;if(!expr)return;
  const names=(expr.expressions||[]).map(x=>x.expressionName||x.name).filter(Boolean);
  const get=(...keys)=>Math.max(0,...keys.map(k=>scores[k]||0));
