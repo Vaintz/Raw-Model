@@ -110,12 +110,12 @@ function applyCameraTracking(t){
    const m=new THREE.Matrix4().fromArray(trackedFaceMatrix);
    const rot=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().extractRotation(m));
    const euler=new THREE.Euler().setFromQuaternion(rot,'YXZ');
-   target={x:THREE.MathUtils.clamp(euler.x,-.55,.55),y:THREE.MathUtils.clamp(euler.y,-.75,.75),z:THREE.MathUtils.clamp(-euler.z,-.5,.5)};
+   target={x:THREE.MathUtils.clamp(-euler.x,-.55,.55),y:THREE.MathUtils.clamp(euler.y,-.75,.75),z:THREE.MathUtils.clamp(-euler.z,-.5,.5)};
   } else if(trackedFaceLandmarks){
    const p=trackedFaceLandmarks,nose=p[1],left=p[234],right=p[454],forehead=p[10],chin=p[152];
    if(nose&&left&&right&&forehead&&chin){
     const cx=(left.x+right.x)/2,cy=(left.y+right.y)/2,width=Math.max(.001,right.x-left.x),height=Math.max(.001,chin.y-forehead.y);
-    target={x:THREE.MathUtils.clamp(((nose.y-cy)/height-.12)*2,-.45,.45),y:THREE.MathUtils.clamp(-(nose.x-cx)/width*1.5,-.65,.65),z:THREE.MathUtils.clamp(-Math.atan2(right.y-left.y,right.x-left.x),-.5,.5)};
+    target={x:THREE.MathUtils.clamp(-((nose.y-cy)/height-.12)*2,-.45,.45),y:THREE.MathUtils.clamp(-(nose.x-cx)/width*1.5,-.65,.65),z:THREE.MathUtils.clamp(-Math.atan2(right.y-left.y,right.x-left.x),-.5,.5)};
    }
   }
   if(target){
@@ -129,12 +129,14 @@ function applyCameraTracking(t){
  const names=(expr.expressions||[]).map(x=>x.expressionName||x.name).filter(Boolean);
  const get=(...keys)=>Math.max(0,...keys.map(k=>scores[k]||0));
  const apply=(name,value)=>{const key=names.find(n=>n.toLowerCase()===name);if(key)expr.setValue(key,THREE.MathUtils.clamp(value,0,1))};
+ // Clear tracked expressions each frame so a previous blink/look direction cannot stick.
+ for(const n of ['joy','angry','sorrow','surprised','blink','blink_l','blink_r','lookup','lookdown','lookleft','lookright','aa','ih','ou','ee','oh'])apply(n,0);
  apply('joy',get('mouthSmileLeft','mouthSmileRight'));
  apply('angry',get('browDownLeft','browDownRight'));
  apply('sorrow',get('mouthFrownLeft','mouthFrownRight'));
  apply('surprised',Math.max(get('jawOpen')*.9,get('eyeWideLeft','eyeWideRight')*.65));
  apply('blink_l',get('eyeBlinkLeft'));apply('blink_r',get('eyeBlinkRight'));apply('blink',get('eyeBlinkLeft','eyeBlinkRight'));
- apply('lookUp',get('eyeLookUpLeft','eyeLookUpRight'));apply('lookDown',get('eyeLookDownLeft','eyeLookDownRight'));
+ apply('lookUp',get('eyeLookDownLeft','eyeLookDownRight'));apply('lookDown',get('eyeLookUpLeft','eyeLookUpRight'));
  apply('lookLeft',get('eyeLookOutLeft','eyeLookInRight'));apply('lookRight',get('eyeLookInLeft','eyeLookOutRight'));
  const jaw=get('jawOpen'),round=get('mouthPucker','mouthFunnel'),smile=get('mouthSmileLeft','mouthSmileRight');
  apply('aa',jaw*(1-round));apply('oh',jaw*round);apply('ou',round);apply('ih',smile*.45*(1-jaw));apply('ee',smile*.7*(1-jaw));
